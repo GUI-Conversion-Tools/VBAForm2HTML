@@ -1,6 +1,6 @@
 Attribute VB_Name = "VBAForm2HTML"
 
-' VBAForm2HTML v0.9.0
+' VBAForm2HTML v0.9.1
 ' https://github.com/GUI-Conversion-Tools/VBAForm2HTML
 ' Copyright (c) 2026 ZeeZeX
 ' This software is released under the MIT License.
@@ -430,7 +430,7 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
                     End Select
                     
                     With otherProperties
-                        .Add "background-image: url(""image.png"")"
+                        .Add "background-image: url(" & q & "" & q & ")"
                         .Add "background-size: " & picSize
                         .Add "background-position: " & picPosition
                         .Add "background-repeat: no-repeat"
