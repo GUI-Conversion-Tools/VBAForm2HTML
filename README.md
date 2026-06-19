@@ -50,7 +50,7 @@ This program converts userforms created in Microsoft Excel VBA into HTML/CSS cod
 | `CheckBox` | `<label>` + `<input type="checkbox">` |
 | `ToggleButton` | `<input type="checkbox">` (`display:none`) + `<label>` |
 | `OptionButton` | `<label>` + `<input type="radio">` |
-| `Image` | `div` |
+| `Image` | `<div>` |
 | `ScrollBar` | `<input type="range">` |
 | `ComboBox` (`.Style = fmStyleDropDownCombo`) | `<input list="[datalist name]">` |
 | `ComboBox` (`.Style = fmStyleDropDownList`) | `<select>` |
