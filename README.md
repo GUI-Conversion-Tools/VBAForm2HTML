@@ -78,6 +78,16 @@ If conversion succeeds, a message will appear, and an `output.html` file will be
 |`frms` |`Variant`|**Required.**<br>Accepts a single `UserForm` object or an `Array` of `UserForm` objects to be converted.            |
 |`usePrefix`  |`Boolean` |**Optional (Default: `False`).**<br>If set to `True`, the form name will be added to each element name. This is automatically set to `True` if `frms` is an array.|
 
+You can execute the conversion by calling the `ConvertForm2HTML` with a single UserForm object or an array of multiple UserForms.
+
+```vb
+' Example: Converting a single form
+Call ConvertForm2HTML(UserForm1)
+
+' Example: Converting multiple forms
+Call ConvertForm2HTML(Array(UserForm1, UserForm2))
+```
+
 ## Control Order (for Controls Without Child Elements)
 In HTML/CSS, if you place one `<div>` on top of another, the later element appears in front.<br>
 However, in VBA, you can change front/back order, so the behavior differs.<br>
