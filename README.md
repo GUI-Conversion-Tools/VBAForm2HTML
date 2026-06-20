@@ -15,7 +15,7 @@ This program converts userforms created in Microsoft Excel VBA into HTML/CSS cod
 - Font (typeface, size, bold, italic)
 - Borders (`UserForm`, `Frame`, `TextBox`, `Label`, `ListBox`, `ComboBox`, `Image`)
 - Mouse cursor
-- Text alignment: left, center, right (`Label`, `TextBox`, `ComboBox`, `CheckBox`, `ToggleButton`, `OptionButton`, "ListBox")
+- Text alignment: left, center, right (`Label`, `TextBox`, `ComboBox`, `CheckBox`, `ToggleButton`, `OptionButton`, `ListBox`)
 - Default values of `TextBox`, `ComboBox`
 - Items set in `ComboBox`, `ListBox`
 - Selection state of `OptionButton`, `CheckBox`, `ToggleButton`
