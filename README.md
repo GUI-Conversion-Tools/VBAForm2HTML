@@ -67,6 +67,8 @@ Call ConvertForm2HTML(UserForm1)
 ```
    > Note: Replace `UserForm1` with the object name of the form you want to convert.
 
+If conversion succeeds, a message will appear, and an `output.html` file will be created in the same directory as your Excel workbook.<br>
+
 ## Parameters
 
 `ConvertForm2HTML` accepts the following parameters:
