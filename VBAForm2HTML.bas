@@ -1,6 +1,6 @@
 Attribute VB_Name = "VBAForm2HTML"
 
-' VBAForm2HTML v0.9.1
+' VBAForm2HTML v0.9.2
 ' https://github.com/GUI-Conversion-Tools/VBAForm2HTML
 ' Copyright (c) 2026 ZeeZeX
 ' This software is released under the MIT License.
@@ -8,15 +8,55 @@ Attribute VB_Name = "VBAForm2HTML"
 
 Option Explicit
 
+#If VBA7 = 0 Then
+    ' Define a placeholder LongPtr type for VBA6 or earlier.
+    ' This allows code that uses LongPtr to compile in older VBA versions,
+    ' even though those versions do not natively support the LongPtr type.
+    Private Enum LongPtr
+        [_]
+    End Enum
+#End If
 
 #If VBA7 Then
     ' 64bit Office / VBA7 or later
     Private Declare PtrSafe Function GetSysColor Lib "user32" (ByVal nIndex As Long) As Long
+    
+    Private Declare PtrSafe Function GdiplusStartup Lib "gdiplus" (ByRef token As LongPtr, ByRef inputbuf As GDIPlusStartupInput, Optional ByVal outputbuf As LongPtr = 0) As Long
+    Private Declare PtrSafe Sub GdiplusShutdown Lib "gdiplus" (ByVal token As LongPtr)
+    Private Declare PtrSafe Function GdipLoadImageFromFile Lib "gdiplus" (ByVal filename As LongPtr, ByRef image As LongPtr) As Long
+    Private Declare PtrSafe Function GdipDisposeImage Lib "gdiplus" (ByVal image As LongPtr) As Long
+    Private Declare PtrSafe Function GdipGetImageWidth Lib "gdiplus" (ByVal image As LongPtr, ByRef width As Long) As Long
+    Private Declare PtrSafe Function GdipGetImageHeight Lib "gdiplus" (ByVal image As LongPtr, ByRef height As Long) As Long
+    Private Declare PtrSafe Function GdipCreateBitmapFromScan0 Lib "gdiplus" (ByVal width As Long, ByVal height As Long, ByVal stride As Long, ByVal format As Long, ByVal scan0 As LongPtr, ByRef bitmap As LongPtr) As Long
+    Private Declare PtrSafe Function GdipGetImageGraphicsContext Lib "gdiplus" (ByVal image As LongPtr, ByRef graphics As LongPtr) As Long
+    Private Declare PtrSafe Function GdipDeleteGraphics Lib "gdiplus" (ByVal graphics As LongPtr) As Long
+    Private Declare PtrSafe Function GdipSetInterpolationMode Lib "gdiplus" (ByVal graphics As LongPtr, ByVal Mode As Long) As Long
+    Private Declare PtrSafe Function GdipDrawImageRectI Lib "gdiplus" (ByVal graphics As LongPtr, ByVal image As LongPtr, ByVal x As Long, ByVal y As Long, ByVal width As Long, ByVal height As Long) As Long
+    Private Declare PtrSafe Function GdipSaveImageToFile Lib "gdiplus" (ByVal image As LongPtr, ByVal filename As LongPtr, ByRef clsidEncoder As GUID, ByVal encoderParams As LongPtr) As Long
+    Private Declare PtrSafe Function CLSIDFromString Lib "ole32" (ByVal lpsz As LongPtr, ByRef pclsid As GUID) As Long
 #Else
     ' 32bit Office
     Private Declare Function GetSysColor Lib "user32" (ByVal nIndex As Long) As Long
+    
+    Private Declare Function GdiplusStartup Lib "gdiplus" (ByRef token As Long, ByRef inputbuf As GDIPlusStartupInput, Optional ByVal outputbuf As Long = 0) As Long
+    Private Declare Sub GdiplusShutdown Lib "gdiplus" (ByVal token As Long)
+    Private Declare Function GdipLoadImageFromFile Lib "gdiplus" (ByVal filename As Long, ByRef image As Long) As Long
+    Private Declare Function GdipDisposeImage Lib "gdiplus" (ByVal image As Long) As Long
+    Private Declare Function GdipGetImageWidth Lib "gdiplus" (ByVal image As Long, ByRef width As Long) As Long
+    Private Declare Function GdipGetImageHeight Lib "gdiplus" (ByVal image As Long, ByRef height As Long) As Long
+    Private Declare Function GdipCreateBitmapFromScan0 Lib "gdiplus" (ByVal width As Long, ByVal height As Long, ByVal stride As Long, ByVal format As Long, ByVal scan0 As Long, ByRef bitmap As Long) As Long
+    Private Declare Function GdipGetImageGraphicsContext Lib "gdiplus" (ByVal image As Long, ByRef graphics As Long) As Long
+    Private Declare Function GdipDeleteGraphics Lib "gdiplus" (ByVal graphics As Long) As Long
+    Private Declare Function GdipSetInterpolationMode Lib "gdiplus" (ByVal graphics As Long, ByVal Mode As Long) As Long
+    Private Declare Function GdipDrawImageRectI Lib "gdiplus" (ByVal graphics As Long, ByVal image As Long, ByVal x As Long, ByVal y As Long, ByVal width As Long, ByVal height As Long) As Long
+    Private Declare Function GdipSaveImageToFile Lib "gdiplus" (ByVal image As Long, ByVal filename As Long, ByRef clsidEncoder As GUID, ByVal encoderParams As Long) As Long
+    Private Declare Function CLSIDFromString Lib "ole32" (ByVal lpsz As Long, ByRef pclsid As GUID) As Long
 #End If
 
+Private Type GDIPlusStartupInput: GdiPlusVersion As Long: DebugEventCallback As LongPtr: SuppressBackgroundThread As Long: SuppressExternalCodecs As Long: End Type
+Private Type GUID: Data1 As Long: Data2 As Integer: Data3 As Integer: Data4(0 To 7) As Byte: End Type
+
+Private Const OUTPUT_FOLDER_NAME As String = "VBAForm2HTML_output"
 
 Public Sub TestRunConversion2Html()
     Call ConvertForm2HTML(UserForm1)
@@ -26,24 +66,30 @@ Public Sub TestRunConversion2Html_2()
     Call ConvertForm2HTML(Array(UserForm1, UserForm2))
 End Sub
 
-Public Sub ConvertForm2HTML(ByVal frms As Variant, Optional ByVal usePrefix As Boolean = False, Optional htmlLang As String = "")
+Public Sub ConvertForm2HTML(ByVal frms As Variant, Optional ByVal usePrefix As Boolean = False, Optional ByVal imageMode As String = "file", Optional ByVal langAttribute As String = "")
     
     ' frms: Variant
     '   Accepts a single UserForm object or an Array of UserForm objects to be converted.
     ' usePrefix: Boolean
     '   If set to True, the form name will be added to each element name.
     '   This is automatically set to True if frms is an array.
+    ' imageMode: String
+    '   Determines how image files used in the UserForm are handled during conversion. You can choose one of the following options:
+    '     "file" (Default): Images are saved as separate external files in the output directory, and the generated code references these files.
+    '     "disabled": Image processing is disabled, and no image-related code is generated.
+    '     "reference-only": Similar to "file", generates code that references image files, but does not export the image files. Useful when the image files already exist.
+    '     "base64": Images are embedded directly into the generated code as Base64-encoded strings, keeping everything in a single file.
+    ' langAttribute: String
+    '   Specifies the language code for the "lang" attribute of the generated <html> tag (e.g., "en" for English, "zh" for Chinese, "ja" for Japanese).
+    '   If omitted, the attribute will be left empty.
     
     Dim code As String
     Dim filePath As String
     Dim saveDir As String
-    code = GenerateHTMLCode(frms, usePrefix, htmlLang)
+    code = GenerateHTMLCode(frms, usePrefix, imageMode, langAttribute)
     If code <> "" Then
-        If ThisWorkbook.Path = "" Then
-            saveDir = "C:"
-        Else
-            saveDir = ThisWorkbook.Path
-        End If
+        saveDir = GetSaveDirPath()
+        Call CreateFolderIfDoesNotExist(saveDir)
         filePath = saveDir & "\output.html"
         Call SaveUTF8Text_NoBOM(filePath, code)
         MsgBox "Saved: " & filePath
@@ -54,7 +100,7 @@ Public Sub ConvertForm2HTML(ByVal frms As Variant, Optional ByVal usePrefix As B
 End Sub
 
 
-Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix As Boolean = False, Optional htmlLang As String = "") As String
+Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix As Boolean = False, Optional ByVal imageMode As String = "file", Optional ByVal langAttribute As String = "") As String
     Dim root As Variant
     Dim indent As String
     Dim prefix As String
@@ -103,6 +149,26 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
     Dim otherProperties As Collection
     Dim htmlTitle As String
     Dim isHtmlTitleSet As Boolean: isHtmlTitleSet = False
+    Dim hasPicture As Boolean
+    Dim tempPath As String
+    Dim picturePath As String
+    Dim pictureName As String
+    Dim saveDir As String
+    Dim base64Str As String
+    Dim fso As Object
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Dim supportedImageModeValues() As Variant
+    
+    imageMode = LCase(imageMode)
+    supportedImageModeValues = Array("file", "disabled", "reference-only", "base64")
+    If Not ContainsValue(supportedImageModeValues, imageMode) Then
+        MsgBox "[imageMode] Invalid value: " & q & imageMode & q & vbLf & "Supported values are " & q & Join(supportedImageModeValues, q & ", " & q) & q
+        GenerateHTMLCode = ""
+        Exit Function
+    End If
+    
+    saveDir = GetSaveDirPath()
+    Call CreateFolderIfDoesNotExist(saveDir)
     
     r = ""
     
@@ -205,6 +271,14 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
         For Each ctrl In ctrls
             controlVarName = GenerateCtrlVarName(ctrl, prefix)
             parentVarName = GenerateCtrlVarName(ctrl.Parent, prefix)
+            hasPicture = False
+            base64Str = ""
+            
+            If usePrefix Then
+                pictureName = "img_" & root.Name & "_" & ctrl.Name
+            Else
+                pictureName = "img_" & ctrl.Name
+            End If
             
             Set cssSelectorProperties = New Collection
             Set tabPageProperties = New Collection
@@ -232,8 +306,8 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
                 If TypeName(ctrl) <> "Page" Then
                     pixelLeft = UserFormSizeToPixel(ctrl.Left)
                     pixelTop = UserFormSizeToPixel(ctrl.Top)
-                    pixelWidth = UserFormSizeToPixel(ctrl.Width)
-                    pixelHeight = UserFormSizeToPixel(ctrl.Height)
+                    pixelWidth = UserFormSizeToPixel(ctrl.width)
+                    pixelHeight = UserFormSizeToPixel(ctrl.height)
                 
                 
                     With positionProperties
@@ -354,8 +428,8 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
                     
                     tabHeight = GetTextSizeFromCtrlFontSetting(ctrl.Parent, "TEST")(1)
                     tabPixelHeight = UserFormSizeToPixel(tabHeight)
-                    pixelWidth = UserFormSizeToPixel(ctrl.Parent.Width)
-                    pixelHeight = UserFormSizeToPixel(ctrl.Parent.Height)
+                    pixelWidth = UserFormSizeToPixel(ctrl.Parent.width)
+                    pixelHeight = UserFormSizeToPixel(ctrl.Parent.height)
                     
                     If ctrl.Parent.Style <> fmTabStyleNone Then
                         pixelHeight = pixelHeight - tabPixelHeight - 10
@@ -373,7 +447,11 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
                     With otherProperties
                         .Add "padding: 2px 8px"
                         .Add "background-color: " & LCase(FormColorToHex(&H8000000F))
-                        .Add "box-shadow: -1px -1px 0 #ffffff, 1px  1px 0 #666666, -2px -2px 0 #eeeeee, 2px  2px 0 #444444"
+                        If ctrl.Parent.Style = fmTabStyleTabs Then
+                            .Add "box-shadow: -1px -1px 0 #ffffff, 1px  1px 0 #666666, -2px -2px 0 #eeeeee, 2px  2px 0 #444444"
+                        Else
+                            .Add "border: none"
+                        End If
                         .Add "display: none"
                     End With
                 End If
@@ -429,8 +507,47 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
                             picPosition = "left top"
                     End Select
                     
+                    If ctrl.Picture Is Nothing Or imageMode = "disabled" Then
+                        hasPicture = False
+                    Else
+                        hasPicture = True
+                    End If
+                    
+                    If hasPicture Then
+                        
+                        tempPath = fso.BuildPath(fso.GetSpecialFolder(2).Path, fso.GetTempName())
+                        
+                        If ContainsValue(Array("base64"), imageMode) Then
+                            picturePath = tempPath & "tmp2.png"
+                        Else
+                            picturePath = saveDir & "\" & pictureName & ".png"
+                        End If
+                        
+                        tempPath = tempPath & ".bmp"
+                        
+                        If ContainsValue(Array("file", "base64"), imageMode) Then
+                            Call SavePicture(ctrl.Picture, tempPath)
+                            Call ConvertImageFormat(tempPath, picturePath, False)
+                            If fso.FileExists(tempPath) Then Call fso.DeleteFile(tempPath)
+                        End If
+                        
+                        If ContainsValue(Array("base64"), imageMode) Then
+                            base64Str = FileToBase64(picturePath)
+                            If fso.FileExists(picturePath) Then Call fso.DeleteFile(picturePath)
+                        End If
+                        
+                        If ContainsValue(Array("file", "reference-only"), imageMode) Then
+                            otherProperties.Add "background-image: url(" & q & fso.GetFileName(picturePath) & q & ")"
+                        ElseIf imageMode = "base64" Then
+                            otherProperties.Add "background-image: url(" & q & "data:image/png;base64," & base64Str & q & ")"
+                        End If
+                    
+                    Else
+                        otherProperties.Add "background-image: url(" & q & "" & q & ")"
+                    End If
+                    
+                    
                     With otherProperties
-                        .Add "background-image: url(" & q & "" & q & ")"
                         .Add "background-size: " & picSize
                         .Add "background-position: " & picPosition
                         .Add "background-repeat: no-repeat"
@@ -512,7 +629,7 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
     Next root
     
     r = r & "<!DOCTYPE html>" & vbLf
-    r = r & "<html lang=" & q & htmlLang & q & ">" & vbLf
+    r = r & "<html lang=" & q & langAttribute & q & ">" & vbLf
     r = r & "<head>" & vbLf
     r = r & IndentSpaces(2) & "<meta charset=""UTF-8"">" & vbLf
     r = r & IndentSpaces(2) & "<meta http-equiv=""X-UA-Compatible"" content=""IE=edge"" />" & vbLf
@@ -541,6 +658,40 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
     
     GenerateHTMLCode = r
 End Function
+
+Private Function GetSaveDirPath() As String
+    Dim result As String
+    Dim wsh As Object
+    result = ""
+    On Error Resume Next
+    result = CallByName(Application, "ThisWorkbook", VbGet).Path ' Excel VBA
+    result = CallByName(Application, "MacroContainer", VbGet).Path ' Word VBA
+    On Error GoTo 0
+    
+    If result = "" Then ' Other Office / Unsaved Workbook
+        On Error Resume Next
+        Set wsh = CreateObject("WScript.Shell")
+        result = wsh.SpecialFolders("MyDocuments")
+        On Error GoTo 0
+    End If
+    
+    If result = "" Then ' If fail to retrieve the path to the Documents folder
+        result = "C:"
+    End If
+    
+    result = result & "\" & OUTPUT_FOLDER_NAME
+    GetSaveDirPath = result
+End Function
+
+Private Sub CreateFolderIfDoesNotExist(ByVal folderPath As String)
+    Dim fso As Object
+    Set fso = CreateObject("Scripting.FileSystemObject")
+
+    If Not fso.FolderExists(folderPath) Then
+        Call fso.CreateFolder(folderPath)
+    End If
+    
+End Sub
 
 Private Function IsSupportedCtrlType(ByVal ctrl As Object) As Boolean
     ' Check if the control can be converted to CSS element
@@ -1052,7 +1203,7 @@ Private Function IsVerticalScrollBar(ByVal ctrl As Object) As Boolean
     Dim result As Boolean
     Select Case ctrl.orientation
         Case fmOrientationAuto
-            If ctrl.Width > ctrl.Height Then
+            If ctrl.width > ctrl.height Then
                 result = False
             Else
                 result = True
@@ -1233,8 +1384,8 @@ Private Function GetTextSizeFromCtrlFontSetting(ByVal ctrl As Object, ByVal targ
     ' Create a temporary Label control for text measurement.
     Set tempLabel = rootForm.Controls.Add("Forms.Label.1", tempName, True)
     ' Initialize control properties.
-    tempLabel.Height = 0
-    tempLabel.Width = 0
+    tempLabel.height = 0
+    tempLabel.width = 0
     tempLabel.caption = ""
     tempLabel.AutoSize = True
     tempLabel.WordWrap = False
@@ -1250,8 +1401,8 @@ Private Function GetTextSizeFromCtrlFontSetting(ByVal ctrl As Object, ByVal targ
     ' Apply target text so AutoSize calculates the rendered dimensions.
     tempLabel.caption = targetText
     ' Read calculated size.
-    textWidthSize = tempLabel.Width
-    textHeightSize = tempLabel.Height
+    textWidthSize = tempLabel.width
+    textHeightSize = tempLabel.height
     
     ' In Excel 2013 and earlier, it was confirmed that the result of .AutoSize
     ' is not reflected in .Width/.Height and remains 0.
@@ -1302,7 +1453,7 @@ Private Function AddRGB(ByVal hexColor As String, _
     Dim r As Long, g As Long, b As Long
 
     ' Remove "#" if included
-    hexColor = Replace(hexColor, "#", "")
+    hexColor = VBA.Replace(hexColor, "#", "")
 
     ' Validate length
     If Len(hexColor) <> 6 Then
@@ -1362,6 +1513,214 @@ Private Function FormColorToHex(ByVal clr As Long) As String
                      Right("0" & Hex(b), 2)
 End Function
 
+Private Sub ConvertImageFormat(ByVal srcPath As String, ByVal dstPath As String, _
+    Optional ByVal resize As Boolean = False, _
+    Optional ByVal dstWidth As Long = -1, _
+    Optional ByVal dstHeight As Long = -1, _
+    Optional ByVal preserveAspectRatio As Boolean = False)
+    
+    '----------------------------------------------------------------------------------------------------
+    ' Converts an image file to a specified output format and optionally resizes the image before saving.
+    ' Uses GDI+ API without relying on WIA components (for compatibility with older versions of Windows).
+    '
+    ' Parameters:
+    '   srcPath              - Full path of the source image file.
+    '   dstPath              - Full path of the destination image file. Output format is
+    '                          determined by the file extension (.png, .jpg, .jpeg, .bmp, .gif).
+    '   resize               - If True, resizes the image before conversion.
+    '                          Default: False.
+    '   dstWidth             - Target width for resizing in pixels.
+    '                          If -1, uses the original image width.
+    '                          Default: -1.
+    '   dstHeight            - Target height for resizing in pixels.
+    '                          If -1, uses the original image height.
+    '                          Default: -1.
+    '   preserveAspectRatio  - If True, maintains the original aspect ratio during resizing.
+    '                          Default: False.
+    '
+    '
+    ' Supported Formats:
+    '   PNG (.png)
+    '   JPEG (.jpg, .jpeg)
+    '   BMP (.bmp)
+    '   GIF (.gif)
+    '
+    ' Errors:
+    '   Raises Error if the destination file extension is not supported.
+    '
+    '----------------------------------------------------------------------------------------------------
+    
+    Const PixelFormat32bppARGB As Long = &H26200A
+    Const InterpolationModeHighQualityBicubic As Long = 7
+    
+    ' Encoder CLSID Constants
+    Const CLSID_BMP As String = "{557CF400-1A04-11D3-9A73-0000F81EF32E}"
+    Const CLSID_JPG As String = "{557CF401-1A04-11D3-9A73-0000F81EF32E}"
+    Const CLSID_GIF As String = "{557CF402-1A04-11D3-9A73-0000F81EF32E}"
+    Const CLSID_PNG As String = "{557CF406-1A04-11D3-9A73-0000F81EF32E}"
+    
+    Dim fso As Object
+    Dim ext As String
+    Dim encoderCLSID As String
+    
+    ' Determine output format by file extension
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    ext = LCase(fso.GetExtensionName(dstPath))
+    
+    Select Case ext
+        Case "png"
+            encoderCLSID = CLSID_PNG
+        Case "jpg", "jpeg"
+            encoderCLSID = CLSID_JPG
+        Case "bmp"
+            encoderCLSID = CLSID_BMP
+        Case "gif"
+            encoderCLSID = CLSID_GIF
+        Case Else
+            Err.Raise Number:=513, Description:="[ConvertImageFormat] [dstPath] Invalid Extension (." & ext & ")"
+    End Select
+    
+    ' Initialize GDI+
+    Dim gsi As GDIPlusStartupInput
+    Dim token As LongPtr
+    gsi.GdiPlusVersion = 1
+    If GdiplusStartup(token, gsi) <> 0 Then
+        Err.Raise Number:=514, Description:="[ConvertImageFormat] Failed to initialize GDI+"
+    End If
+    
+    On Error GoTo CleanUp
+    
+    ' Load source image
+    Dim hSrcImage As LongPtr
+    If GdipLoadImageFromFile(StrPtr(srcPath), hSrcImage) <> 0 Then
+        Err.Raise Number:=515, Description:="[ConvertImageFormat] Failed to load source image: " & srcPath
+    End If
+    
+    ' Get original dimensions
+    Dim origWidth As Long, origHeight As Long
+    GdipGetImageWidth hSrcImage, origWidth
+    GdipGetImageHeight hSrcImage, origHeight
+    
+    ' Determine target dimensions
+    Dim targetW As Long, targetH As Long
+    targetW = IIf(dstWidth = -1, origWidth, dstWidth)
+    targetH = IIf(dstHeight = -1, origHeight, dstHeight)
+    
+    ' Calculate aspect-ratio adjusted dimensions if required
+    Dim finalW As Long, finalH As Long
+    If resize And preserveAspectRatio Then
+        Dim scaleW As Double, scaleH As Double, scaleFactor As Double
+        scaleW = CDbl(targetW) / CDbl(origWidth)
+        scaleH = CDbl(targetH) / CDbl(origHeight)
+        
+        ' Calculate ratio based on min(scaleW, scaleH) when preserving aspect ratio
+        If scaleW < scaleH Then
+            scaleFactor = scaleW
+        Else
+            scaleFactor = scaleH
+        End If
+        
+        finalW = CLng(origWidth * scaleFactor)
+        finalH = CLng(origHeight * scaleFactor)
+        If finalW < 1 Then finalW = 1
+        If finalH < 1 Then finalH = 1
+    ElseIf resize Then
+        finalW = targetW
+        finalH = targetH
+    Else
+        finalW = origWidth
+        finalH = origHeight
+    End If
+    
+    ' Create new bitmap and draw resized image if necessary or convert directly
+    Dim hDstBitmap As LongPtr
+    Dim hGraphics As LongPtr
+    
+    If resize Or (finalW <> origWidth Or finalH <> origHeight) Then
+        GdipCreateBitmapFromScan0 finalW, finalH, 0, PixelFormat32bppARGB, 0, hDstBitmap
+        GdipGetImageGraphicsContext hDstBitmap, hGraphics
+        GdipSetInterpolationMode hGraphics, InterpolationModeHighQualityBicubic
+        GdipDrawImageRectI hGraphics, hSrcImage, 0, 0, finalW, finalH
+    Else
+        hDstBitmap = hSrcImage
+    End If
+    
+    ' Prepare Encoder CLSID
+    Dim tCLSID As GUID
+    CLSIDFromString StrPtr(encoderCLSID), tCLSID
+    
+    ' Save image using temporary file pattern
+    Dim tmpPath As String
+    tmpPath = dstPath & ".tmp"
+    
+    If fso.FileExists(tmpPath) Then fso.DeleteFile tmpPath
+    
+    Dim status As Long
+    status = GdipSaveImageToFile(hDstBitmap, StrPtr(tmpPath), tCLSID, 0)
+    
+    ' Clean up GDI+ image resources prior to moving file
+    If hGraphics <> 0 Then GdipDeleteGraphics hGraphics
+    If hDstBitmap <> 0 And hDstBitmap <> hSrcImage Then GdipDisposeImage hDstBitmap
+    If hSrcImage <> 0 Then GdipDisposeImage hSrcImage
+    
+    hGraphics = 0
+    hDstBitmap = 0
+    hSrcImage = 0
+    
+    If status <> 0 Then
+        If fso.FileExists(tmpPath) Then fso.DeleteFile tmpPath
+        Err.Raise Number:=516, Description:="[ConvertImageFormat] Failed to save output image."
+    End If
+    
+    ' Overwrite target file
+    If fso.FileExists(dstPath) Then fso.DeleteFile dstPath
+    fso.MoveFile tmpPath, dstPath
+
+CleanUp:
+    ' Ensure GDI+ resources are freed
+    If hGraphics <> 0 Then GdipDeleteGraphics hGraphics
+    If hDstBitmap <> 0 And hDstBitmap <> hSrcImage Then GdipDisposeImage hDstBitmap
+    If hSrcImage <> 0 Then GdipDisposeImage hSrcImage
+    If token <> 0 Then GdiplusShutdown token
+    
+    If Err.Number <> 0 Then
+        Dim errNum As Long, errDesc As String
+        errNum = Err.Number
+        errDesc = Err.Description
+        Err.Raise errNum, Description:=errDesc
+    End If
+End Sub
+
+
+Private Function FileToBase64(ByVal filePath As String) As String
+    Dim stream As Object
+    Dim xml As Object
+    Dim node As Object
+    
+
+    ' Load file as binary
+    Set stream = CreateObject("ADODB.Stream")
+    stream.Type = 1 ' binary
+    stream.Open
+    stream.LoadFromFile filePath
+
+    ' Convert binary to Base64
+    Set xml = CreateObject("MSXML2.DOMDocument")
+    Set node = xml.createElement("base64")
+
+    node.DataType = "bin.base64"
+    node.nodeTypedValue = stream.Read
+
+    ' Remove line breaks
+    FileToBase64 = VBA.Replace(node.text, vbLf, "")
+    FileToBase64 = VBA.Replace(FileToBase64, vbCr, "")
+
+    stream.Close
+    Set node = Nothing
+    Set xml = Nothing
+    Set stream = Nothing
+
+End Function
 
 Private Function ContainsValue(ByVal itemList As Variant, ByVal value As Variant) As Boolean
     ' Check if a specific value exists in Array/Collection/Dictionary
