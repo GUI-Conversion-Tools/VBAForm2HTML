@@ -1,6 +1,6 @@
 Attribute VB_Name = "VBAForm2HTML"
 
-' VBAForm2HTML v0.9.2
+' VBAForm2HTML v0.9.3
 ' https://github.com/GUI-Conversion-Tools/VBAForm2HTML
 ' Copyright (c) 2026 ZeeZeX
 ' This software is released under the MIT License.
@@ -91,7 +91,7 @@ Public Sub ConvertForm2HTML(ByVal frms As Variant, Optional ByVal usePrefix As B
         saveDir = GetSaveDirPath()
         Call CreateFolderIfDoesNotExist(saveDir)
         filePath = saveDir & "\output.html"
-        Call SaveUTF8Text_NoBOM(filePath, code)
+        Call SaveUtf8TextNoBom(filePath, code)
         MsgBox "Saved: " & filePath
     Else
         MsgBox "Conversion failed."
@@ -111,7 +111,8 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
     Dim ctrl As MSForms.Control
     Dim ctrls As Collection
     Dim item As Variant
-    Dim r As String
+    Dim result As String
+    Dim codeList As New Collection
     Const q As String = """"
 
     Dim pixelWidth As Long
@@ -135,11 +136,14 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
     Dim temp As Variant
     Dim picSize As String
     Dim picPosition As String
-    Dim elementStyles As New Collection
-    Dim jsScripts As New Collection
-    Dim htmlBodies As New Collection
+    Dim allElementStyleList As New Collection
+    Dim allJsCodeList As New Collection
+    Dim allHtmlBodyList As New Collection
+    Dim currentFormElementStyleList As Collection
+    Dim currentFormJsCodeList As Collection
+    Dim currentFormHtmlBodyList As Collection
     Dim elementStyle As String
-    Dim jsScript As String
+    Dim jsCode As String
     Dim htmlBody As String
     Dim tabHeight As Long
     Dim tabPixelHeight As Long
@@ -170,7 +174,6 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
     saveDir = GetSaveDirPath()
     Call CreateFolderIfDoesNotExist(saveDir)
     
-    r = ""
     
     If IsArray(frms) Then
         usePrefix = True
@@ -190,7 +193,7 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
     End With
 
     elementStyle = GenerateCssSelector("body", cssSelectorProperties, "") & vbLf
-    elementStyles.Add elementStyle
+    allElementStyleList.Add elementStyle
     
     Set cssSelectorProperties = New Collection
     
@@ -202,14 +205,15 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
         .Add "  opacity: 1;", "  display: block;"
         .Add "}"
     End With
-    elementStyles.Add JoinCollection(temp, vbLf) & vbLf
+    allElementStyleList.Add JoinCollection(temp, vbLf) & vbLf
     
     For Each root In frms
     
         Set cssSelectorProperties = New Collection
-        elementStyle = ""
-        jsScript = ""
-        htmlBody = ""
+        
+        Set currentFormElementStyleList = New Collection
+        Set currentFormJsCodeList = New Collection
+        Set currentFormHtmlBodyList = New Collection
         
         unavailableNames = VBA.Array("class", "script", "body", "id", "style")
         
@@ -219,8 +223,8 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
         
         If ContainsValue(unavailableNames, LCase(root.Name)) Then
             MsgBox GenerateUnavailableNameMessage(root)
-            r = ""
-            GenerateHTMLCode = r
+            result = ""
+            GenerateHTMLCode = result
             Exit Function
         End If
         
@@ -260,12 +264,12 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
         Set temp = GetBorderSetting(root)
         Call ExtendCollection(cssSelectorProperties, temp)
         
-        elementStyle = elementStyle & GenerateCssSelector(formName, cssSelectorProperties) & vbLf & vbLf
+        currentFormElementStyleList.Add GenerateCssSelector(formName, cssSelectorProperties) & vbLf & vbLf
         
         Set cssSelectorProperties = New Collection
         
 
-        elementStyle = elementStyle & vbLf
+        currentFormElementStyleList.Add vbLf
 
         Set ctrls = GetAllChildCtrlsDfs(root)
         For Each ctrl In ctrls
@@ -295,8 +299,8 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
             
             If ContainsValue(unavailableNames, LCase(ctrl.Name)) Then
                 MsgBox GenerateUnavailableNameMessage(ctrl)
-                r = ""
-                GenerateHTMLCode = r
+                result = ""
+                GenerateHTMLCode = result
                 Exit Function
             End If
             
@@ -576,87 +580,93 @@ Public Function GenerateHTMLCode(ByVal frms As Variant, Optional ByVal usePrefix
                     Call ExtendCollection(cssSelectorProperties, otherProperties)
                 End If
                 
-                elementStyle = elementStyle & GenerateCssSelector(controlVarName, cssSelectorProperties) & vbLf & vbLf
+                currentFormElementStyleList.Add GenerateCssSelector(controlVarName, cssSelectorProperties) & vbLf & vbLf
                 
                 If TypeName(ctrl) = "CheckBox" Or TypeName(ctrl) = "OptionButton" Then
-                    elementStyle = elementStyle & GenerateCssSelector(controlVarName & "-label", buttonTextLabelProperties, ".") & vbLf & vbLf
+                    currentFormElementStyleList.Add GenerateCssSelector(controlVarName & "-label", buttonTextLabelProperties, ".") & vbLf & vbLf
                 End If
                 
                 
                 If TypeName(ctrl) = "ToggleButton" Then
-                    elementStyle = elementStyle & GenerateCssSelector(controlVarName & "-label", buttonTextLabelProperties, ".") & vbLf & vbLf
-                    elementStyle = elementStyle & GenerateCssSelector(controlVarName & "-input", toggleButtonInputProperties, ".") & vbLf & vbLf
-                    elementStyle = elementStyle & GenerateCssSelector(controlVarName & "-setting", toggleButtonSettingProperties, ".") & vbLf & vbLf
-                    elementStyle = elementStyle & GenerateCssSelector(controlVarName & "-input:checked + ." & controlVarName & "-label", toggleButtonCheckedProperties, ".") & vbLf & vbLf
+                    currentFormElementStyleList.Add GenerateCssSelector(controlVarName & "-label", buttonTextLabelProperties, ".") & vbLf & vbLf
+                    currentFormElementStyleList.Add GenerateCssSelector(controlVarName & "-input", toggleButtonInputProperties, ".") & vbLf & vbLf
+                    currentFormElementStyleList.Add GenerateCssSelector(controlVarName & "-setting", toggleButtonSettingProperties, ".") & vbLf & vbLf
+                    currentFormElementStyleList.Add GenerateCssSelector(controlVarName & "-input:checked + ." & controlVarName & "-label", toggleButtonCheckedProperties, ".") & vbLf & vbLf
                 End If
                 
                 If TypeName(ctrl) = "MultiPage" Then
-                    elementStyle = elementStyle & GenerateCssSelector(controlVarName & "-TabPages", tabPageProperties, ".") & vbLf & vbLf
-                    elementStyle = elementStyle & GenerateCssSelector(controlVarName & "-ActiveTab", activeTabProperties, ".") & vbLf & vbLf
-                    elementStyle = elementStyle & GenerateCssSelector(controlVarName & "-InactiveTab", inactiveTabProperties, ".") & vbLf & vbLf
+                    currentFormElementStyleList.Add GenerateCssSelector(controlVarName & "-TabPages", tabPageProperties, ".") & vbLf & vbLf
+                    currentFormElementStyleList.Add GenerateCssSelector(controlVarName & "-ActiveTab", activeTabProperties, ".") & vbLf & vbLf
+                    currentFormElementStyleList.Add GenerateCssSelector(controlVarName & "-InactiveTab", inactiveTabProperties, ".") & vbLf & vbLf
                 End If
                 
-                elementStyle = elementStyle & vbLf
+                currentFormElementStyleList.Add vbLf
                 
             Else
                 MsgBox GenerateUnsupportedControlMessage(ctrl)
-                r = ""
-                GenerateHTMLCode = r
+                result = ""
+                GenerateHTMLCode = result
                 Exit Function
             End If
         Next ctrl
         
         
-        htmlBody = htmlBody & "<div id=" & q & formName & q & ">"
-        htmlBody = htmlBody & vbLf
+        currentFormHtmlBodyList.Add "<div id=" & q & formName & q & ">"
+        currentFormHtmlBodyList.Add vbLf
         
-        htmlBody = htmlBody & SetCssAllCtrlsDfs(root, prefix)
+        currentFormHtmlBodyList.Add SetCssAllCtrlsDfs(root, prefix)
 
-        htmlBody = htmlBody & vbLf
-        htmlBody = htmlBody & "</div>" & vbLf
+        currentFormHtmlBodyList.Add vbLf
+        currentFormHtmlBodyList.Add "</div>" & vbLf
         
         For Each ctrl In ctrls
             If TypeName(ctrl) = "MultiPage" Then
-                jsScript = jsScript & GenerateTabPageSwitchingFunc(ctrl, prefix)
-                jsScript = jsScript & vbLf
+                currentFormJsCodeList.Add GenerateTabPageSwitchingFunc(ctrl, prefix)
+                currentFormJsCodeList.Add vbLf
             End If
         Next
         
-        elementStyles.Add elementStyle
-        htmlBodies.Add htmlBody
-        jsScripts.Add jsScript
+        elementStyle = JoinCollection(currentFormElementStyleList, "")
+        htmlBody = JoinCollection(currentFormHtmlBodyList, "")
+        jsCode = JoinCollection(currentFormJsCodeList, "")
+        
+        allElementStyleList.Add elementStyle
+        allHtmlBodyList.Add htmlBody
+        allJsCodeList.Add jsCode
         
     Next root
     
-    r = r & "<!DOCTYPE html>" & vbLf
-    r = r & "<html lang=" & q & langAttribute & q & ">" & vbLf
-    r = r & "<head>" & vbLf
-    r = r & IndentSpaces(2) & "<meta charset=""UTF-8"">" & vbLf
-    r = r & IndentSpaces(2) & "<meta http-equiv=""X-UA-Compatible"" content=""IE=edge"" />" & vbLf
-    r = r & IndentSpaces(2) & "<title>" & htmlTitle & "</title>" & vbLf
-    r = r & vbLf
-    r = r & IndentSpaces(2) & "<style>" & vbLf
-    temp = JoinCollection(elementStyles, vbLf)
-    temp = AdjustIndent(temp, 4)
-    r = r & temp & vbLf
-    r = r & IndentSpaces(2) & "</style>" & vbLf
-    r = r & "</head>" & vbLf
-    
-    r = r & "<body>" & vbLf
-    temp = JoinCollection(htmlBodies, vbLf) & vbLf
-    temp = AdjustIndent(temp, 2)
-    r = r & temp & vbLf
-    
-    r = r & IndentSpaces(2) & "<script>" & vbLf
-    temp = JoinCollection(jsScripts, vbLf)
-    temp = AdjustIndent(temp, 4)
-    r = r & temp & vbLf
-    r = r & IndentSpaces(2) & "</script>" & vbLf
-    
-    r = r & "</body>" & vbLf
-    r = r & "</html>"
-    
-    GenerateHTMLCode = r
+    With codeList
+        .Add "<!DOCTYPE html>" & vbLf
+        .Add "<html lang=" & q & langAttribute & q & ">" & vbLf
+        .Add "<head>" & vbLf
+        .Add Space(2) & "<meta charset=""UTF-8"">" & vbLf
+        .Add Space(2) & "<meta http-equiv=""X-UA-Compatible"" content=""IE=edge"" />" & vbLf
+        .Add Space(2) & "<title>" & htmlTitle & "</title>" & vbLf
+        .Add vbLf
+        .Add Space(2) & "<style>" & vbLf
+        temp = JoinCollection(allElementStyleList, vbLf)
+        temp = AdjustIndent(temp, 4)
+        .Add temp & vbLf
+        .Add Space(2) & "</style>" & vbLf
+        .Add "</head>" & vbLf
+        
+        .Add "<body>" & vbLf
+        temp = JoinCollection(allHtmlBodyList, vbLf) & vbLf
+        temp = AdjustIndent(temp, 2)
+        .Add temp & vbLf
+        
+        .Add Space(2) & "<script>" & vbLf
+        temp = JoinCollection(allJsCodeList, vbLf)
+        temp = AdjustIndent(temp, 4)
+        .Add temp & vbLf
+        .Add Space(2) & "</script>" & vbLf
+        
+        .Add "</body>" & vbLf
+        .Add "</html>"
+    End With
+    result = JoinCollection(codeList, "")
+    GenerateHTMLCode = result
 End Function
 
 Private Function GetSaveDirPath() As String
@@ -707,17 +717,16 @@ Private Function IsSupportedCtrlType(ByVal ctrl As Object) As Boolean
 End Function
 
 Private Function SetCssElement(ByVal ctrl As Variant, ByVal prefix As String) As String
+    Dim codeList As New Collection
     Dim controlVarName As String
     Dim parentVarName As String
     Dim ctrlValue As String
     Dim spaceCnt As Long
-    Dim r As String
+    Dim result As String
     Const q As String = """"
     Dim ctrlDepth As Long
     Dim temp As Variant
     Dim listBoxSize As Long
-    
-    r = ""
     
     controlVarName = GenerateCtrlVarName(ctrl, prefix)
     parentVarName = GenerateCtrlVarName(ctrl.Parent, prefix)
@@ -736,50 +745,50 @@ Private Function SetCssElement(ByVal ctrl As Variant, ByVal prefix As String) As
 
     Select Case TypeName(ctrl)
         Case "Label"
-            r = r & IndentSpaces(spaceCnt) & "<div id=" & q & controlVarName & q & ">" & ctrlValue & "</div>"
+            codeList.Add Space(spaceCnt) & "<div id=" & q & controlVarName & q & ">" & ctrlValue & "</div>"
         Case "TextBox"
             If ctrl.MultiLine Then
-                r = r & IndentSpaces(spaceCnt) & "<textarea id=" & q & controlVarName & q
+                codeList.Add Space(spaceCnt) & "<textarea id=" & q & controlVarName & q
                 
                 If ctrl.WordWrap Then
-                    r = r & " wrap=""soft"""
+                    codeList.Add " wrap=""soft"""
                 Else
-                    r = r & " wrap=""off"""
+                    codeList.Add " wrap=""off"""
                 End If
                 
                 If ctrl.Locked Then
-                    r = r & " disabled"
+                    codeList.Add " disabled"
                 End If
                 
-                r = r & ">" & ctrlValue & "</textarea>"
+                codeList.Add ">" & ctrlValue & "</textarea>"
             Else
-                r = r & IndentSpaces(spaceCnt) & "<input id=" & q & controlVarName & q
+                codeList.Add Space(spaceCnt) & "<input id=" & q & controlVarName & q
                 If ctrl.PasswordChar <> "" Then
-                    r = r & " type=""password"" "
+                    codeList.Add " type=""password"" "
                 Else
-                    r = r & " type=""text"" "
+                    codeList.Add " type=""text"" "
                 End If
-                r = r & "value=" & q & ctrlValue & q
+                codeList.Add "value=" & q & ctrlValue & q
                 If ctrl.Locked Then
-                    r = r & " disabled"
+                    codeList.Add " disabled"
                 End If
-                r = r & ">"
+                codeList.Add ">"
             End If
         Case "SpinButton"
-            r = r & IndentSpaces(spaceCnt) & "<input id=" & q & controlVarName & q & " type=""number"">"
+            codeList.Add Space(spaceCnt) & "<input id=" & q & controlVarName & q & " type=""number"">"
         Case "ComboBox"
 
             If ctrl.Style = fmStyleDropDownList Then
-                r = r & IndentSpaces(spaceCnt) & "<select id=" & q & controlVarName & q & ">" & vbLf & GenerateCssSelectOptions(ctrl, spaceCnt) & IndentSpaces(spaceCnt) & "</select>"
+                codeList.Add Space(spaceCnt) & "<select id=" & q & controlVarName & q & ">" & vbLf & GenerateCssSelectOptions(ctrl, spaceCnt) & Space(spaceCnt) & "</select>"
             Else
-                r = r & IndentSpaces(spaceCnt) & "<input id=" & q & controlVarName & q & " list=" & q & controlVarName & "-items-value" & q & " value=" & q & ctrlValue & q & ">" & vbLf
-                r = r & GenerateCssDataList(ctrl, spaceCnt, prefix)
+                codeList.Add Space(spaceCnt) & "<input id=" & q & controlVarName & q & " list=" & q & controlVarName & "-items-value" & q & " value=" & q & ctrlValue & q & ">" & vbLf
+                codeList.Add GenerateCssDataList(ctrl, spaceCnt, prefix)
             End If
 
         Case "ListBox"
-            r = r & IndentSpaces(spaceCnt) & "<select "
+            codeList.Add Space(spaceCnt) & "<select "
             If ctrl.MultiSelect = fmMultiSelectMulti Or ctrl.MultiSelect = fmMultiSelectExtended Then
-                r = r & "multiple "
+                codeList.Add "multiple "
             End If
             ' If the size is 1 or less, <select> will appear as a combo box, so specify a value of at least 2.
             If ctrl.ListCount > 1 Then
@@ -787,10 +796,10 @@ Private Function SetCssElement(ByVal ctrl As Variant, ByVal prefix As String) As
             Else
                 listBoxSize = 2
             End If
-            r = r & "id=" & q & controlVarName & q & " size=" & listBoxSize & ">" & vbLf & GenerateCssSelectOptions(ctrl, spaceCnt) & IndentSpaces(spaceCnt) & "</select>"
+            codeList.Add "id=" & q & controlVarName & q & " size=" & listBoxSize & ">" & vbLf & GenerateCssSelectOptions(ctrl, spaceCnt) & Space(spaceCnt) & "</select>"
             
         Case "CheckBox"
-            r = r & IndentSpaces(spaceCnt) & "<label for=" & q & controlVarName & q & " class=" & q & controlVarName & "-label" & q & ">"
+            codeList.Add Space(spaceCnt) & "<label for=" & q & controlVarName & q & " class=" & q & controlVarName & "-label" & q & ">"
             temp = "<input " & "id=" & q & controlVarName & q & " type=""checkbox"""
             If ctrl.value Then
                 temp = temp & " checked>"
@@ -798,13 +807,13 @@ Private Function SetCssElement(ByVal ctrl As Variant, ByVal prefix As String) As
                 temp = temp & ">"
             End If
             If ctrl.Alignment = fmAlignmentLeft Then
-                r = r & ctrlValue & temp & "</label>"
+                codeList.Add ctrlValue & temp & "</label>"
             Else
-                r = r & temp & ctrlValue & "</label>"
+                codeList.Add temp & ctrlValue & "</label>"
             End If
             
         Case "OptionButton"
-            r = r & IndentSpaces(spaceCnt) & "<label for=" & q & controlVarName & q & " class=" & q & controlVarName & "-label" & q & ">"
+            codeList.Add Space(spaceCnt) & "<label for=" & q & controlVarName & q & " class=" & q & controlVarName & "-label" & q & ">"
             temp = "<input " & "id=" & q & controlVarName & q & " type=""radio"" " & "name=" & q & parentVarName & "-radio" & q & " value=" & q & controlVarName & "-value" & q
             If ctrl.value Then
                 temp = temp & " checked>"
@@ -812,13 +821,13 @@ Private Function SetCssElement(ByVal ctrl As Variant, ByVal prefix As String) As
                 temp = temp & ">"
             End If
             If ctrl.Alignment = fmAlignmentLeft Then
-                r = r & ctrlValue & temp & "</label>"
+                codeList.Add ctrlValue & temp & "</label>"
             Else
-                r = r & temp & ctrlValue & "</label>"
+                codeList.Add temp & ctrlValue & "</label>"
             End If
         Case "ToggleButton"
             
-            temp = IndentSpaces(spaceCnt) & "<input " & "id=" & q & controlVarName & q & " type=""checkbox"""
+            temp = Space(spaceCnt) & "<input " & "id=" & q & controlVarName & q & " type=""checkbox"""
             temp = temp & " class=" & q & controlVarName & "-input " & controlVarName & "-setting" & q
 
             If ctrl.value Then
@@ -829,33 +838,34 @@ Private Function SetCssElement(ByVal ctrl As Variant, ByVal prefix As String) As
             
             temp = temp & "<label for=" & q & controlVarName & q & " class=" & q & controlVarName & "-label " & controlVarName & "-setting" & q & ">"
             temp = temp & ctrlValue & "</label>"
-            r = r & temp
+            codeList.Add temp
             
         Case "Image"
-            r = r & IndentSpaces(spaceCnt) & "<div id=" & q & controlVarName & q & "></div>"
+            codeList.Add Space(spaceCnt) & "<div id=" & q & controlVarName & q & "></div>"
         Case "ScrollBar"
-            r = r & IndentSpaces(spaceCnt) & "<input id=" & q & controlVarName & q & " type=""range"" min=" & q & ctrl.Min & q & " max=" & q & ctrl.Max & q & " step=""1"" value=" & q & ctrl.value & q & ">"
+            codeList.Add Space(spaceCnt) & "<input id=" & q & controlVarName & q & " type=""range"" min=" & q & ctrl.Min & q & " max=" & q & ctrl.Max & q & " step=""1"" value=" & q & ctrl.value & q & ">"
         Case "CommandButton"
-            r = r & IndentSpaces(spaceCnt) & "<button id=" & q & controlVarName & q & ">" & ctrlValue & "</button>"
+            codeList.Add Space(spaceCnt) & "<button id=" & q & controlVarName & q & ">" & ctrlValue & "</button>"
     End Select
 
 
-    r = r & vbLf
-
-    SetCssElement = r
+    codeList.Add vbLf
+    result = JoinCollection(codeList, "")
+    SetCssElement = result
 End Function
 
 Private Function SetCssAllCtrlsDfs(ByVal parentCtrl As Object, ByVal prefix As String) As String
+    Dim codeList As New Collection
+    Dim resultCode As String
     Dim children As Variant
-    Dim code As String
-    code = ""
-    Dim results As Collection
+    Dim recursiveResult As Collection
     Set children = GetDirectChildCtrls(parentCtrl)
-    Set results = SetCssAllCtrlsDfsRecursive(children, code, prefix)
-    SetCssAllCtrlsDfs = code
+    Set recursiveResult = SetCssAllCtrlsDfsRecursive(children, codeList, prefix)
+    resultCode = JoinCollection(codeList, "")
+    SetCssAllCtrlsDfs = resultCode
 End Function
 
-Private Function SetCssAllCtrlsDfsRecursive(ByVal ctrls As Variant, ByRef code As String, ByVal prefix As String) As Collection
+Private Function SetCssAllCtrlsDfsRecursive(ByVal ctrls As Variant, ByRef codeList As Collection, ByVal prefix As String) As Collection
     Dim shouldProcess As Boolean: shouldProcess = False
     Dim results As New Collection
     Dim ctrl As Variant
@@ -870,43 +880,43 @@ Private Function SetCssAllCtrlsDfsRecursive(ByVal ctrls As Variant, ByRef code A
             results.Add ctrl
             controlVarName = GenerateCtrlVarName(ctrl, prefix)
             ctrlDepth = GetFormControlDepth(ctrl)
-            code = code & SetCssElement(ctrl, prefix)
+            codeList.Add SetCssElement(ctrl, prefix)
             Set children = GetDirectChildCtrls(ctrl)
             
             If TypeName(ctrl) = "Frame" Then
-                code = code & IndentSpaces(ctrlDepth * 2) & "<fieldset id=" & q & controlVarName & q & ">"
+                codeList.Add Space(ctrlDepth * 2) & "<fieldset id=" & q & controlVarName & q & ">"
                 If ctrl.caption <> "" Then
-                    code = code & "<legend>" & Convert2HTMLFormatText(ctrl.caption) & "</legend>"
+                    codeList.Add "<legend>" & Convert2HTMLFormatText(ctrl.caption) & "</legend>"
                 End If
-                code = code & vbLf
+                codeList.Add vbLf
             ElseIf TypeName(ctrl) = "MultiPage" Then
-                code = code & IndentSpaces(ctrlDepth * 2) & "<div id=" & q & controlVarName & q & ">" & vbLf
+                codeList.Add Space(ctrlDepth * 2) & "<div id=" & q & controlVarName & q & ">" & vbLf
                 If ctrl.TabOrientation <> fmTabOrientationBottom Then
-                    code = code & GenerateCssMultiPageTabsCode(ctrl, controlVarName, prefix, ctrlDepth) & vbLf
+                    codeList.Add GenerateCssMultiPageTabsCode(ctrl, controlVarName, prefix, ctrlDepth) & vbLf
                 End If
             ElseIf TypeName(ctrl) = "Page" Then
-                code = code & IndentSpaces(ctrlDepth * 2) & "<div id=" & q & controlVarName & q
+                codeList.Add Space(ctrlDepth * 2) & "<div id=" & q & controlVarName & q
                 If ctrl Is ctrl.Parent.Pages(0) Then
                     ' Setting for first tab page
-                    code = code & " style=""display: block"""
+                    codeList.Add " style=""display: block"""
                 End If
                 
-                code = code & ">" & vbLf
+                codeList.Add ">" & vbLf
             End If
 
-            Call ExtendCollection(results, SetCssAllCtrlsDfsRecursive(children, code, prefix))
+            Call ExtendCollection(results, SetCssAllCtrlsDfsRecursive(children, codeList, prefix))
             
             If TypeName(ctrl) = "Frame" Then
-                code = code & IndentSpaces(ctrlDepth * 2) & "</fieldset>" & vbLf
+                codeList.Add Space(ctrlDepth * 2) & "</fieldset>" & vbLf
             ElseIf TypeName(ctrl) = "MultiPage" Then
                 
                 If ctrl.TabOrientation = fmTabOrientationBottom Then
-                    code = code & GenerateCssMultiPageTabsCode(ctrl, controlVarName, prefix, ctrlDepth) & vbLf
+                    codeList.Add GenerateCssMultiPageTabsCode(ctrl, controlVarName, prefix, ctrlDepth) & vbLf
                 End If
                 
-                code = code & IndentSpaces(ctrlDepth * 2) & "</div>" & vbLf
+                codeList.Add Space(ctrlDepth * 2) & "</div>" & vbLf
             ElseIf TypeName(ctrl) = "Page" Then
-                code = code & IndentSpaces(ctrlDepth * 2) & "</div>" & vbLf
+                codeList.Add Space(ctrlDepth * 2) & "</div>" & vbLf
             End If
         Next
     End If
@@ -920,7 +930,8 @@ Private Function GenerateCssMultiPageTabsCode(ByVal ctrl As Object, ByVal contro
     '    <div id="MultiPage3_Page2-Tab" class="MultiPage3-TabPages MultiPage3-InactiveTab" onclick="MultiPage3_SwitchPage(1)">Page2</div>
     '  </div>
     
-    Dim code As String
+    Dim codeList As New Collection
+    Dim result As String
     Dim multiPageFuncName As String
     Dim multiPageTabClassName As String
     Dim multiPageTabState As String
@@ -929,7 +940,7 @@ Private Function GenerateCssMultiPageTabsCode(ByVal ctrl As Object, ByVal contro
     Dim ctrl2 As Variant
     Const q As String = """"
     
-    code = IndentSpaces(ctrlDepth * 2 + 2) & "<div style=""white-space: nowrap; font-size: 0;"">" & vbLf
+    codeList.Add Space(ctrlDepth * 2 + 2) & "<div style=""white-space: nowrap; font-size: 0;"">" & vbLf
     multiPageFuncName = GenerateMultiPageFuncName(ctrl, prefix)
     multiPageTabClassName = controlVarName & "-TabPages"
     i = 0
@@ -942,11 +953,12 @@ Private Function GenerateCssMultiPageTabsCode(ByVal ctrl As Object, ByVal contro
             multiPageTabState = controlVarName & "-InactiveTab"
         End If
         
-        code = code & IndentSpaces(ctrlDepth * 2 + 4) & "<div id=" & q & pageName & "-Tab" & q & " class=" & q & multiPageTabClassName & " " & multiPageTabState & q & " onclick=" & q & multiPageFuncName & "(" & i & ")" & q & ">" & Convert2HTMLFormatText(ctrl2.caption) & "</div>" & vbLf
+        codeList.Add Space(ctrlDepth * 2 + 4) & "<div id=" & q & pageName & "-Tab" & q & " class=" & q & multiPageTabClassName & " " & multiPageTabState & q & " onclick=" & q & multiPageFuncName & "(" & i & ")" & q & ">" & Convert2HTMLFormatText(ctrl2.caption) & "</div>" & vbLf
         i = i + 1
     Next
-    code = code & IndentSpaces(ctrlDepth * 2 + 2) & "</div>"
-    GenerateCssMultiPageTabsCode = code
+    codeList.Add Space(ctrlDepth * 2 + 2) & "</div>"
+    result = JoinCollection(codeList, "")
+    GenerateCssMultiPageTabsCode = result
 End Function
 
 
@@ -1035,17 +1047,6 @@ Private Function GenerateCtrlVarName(ByVal ctrl As Object, ByVal prefix As Strin
 End Function
 
 
-Private Function IndentSpaces(ByVal n As Long) As String
-    Dim i As Long
-    Dim result As String
-    result = ""
-    For i = 1 To n
-        result = result + " "
-    Next
-    IndentSpaces = result
-End Function
-
-
 Private Function GenerateCssSelector(ByVal ctrlName As String, ByVal properties As Variant, Optional ByVal selectorSymbol As String = "#") As String
     ' Generate CSS Selector from the control name and the list of properties (Array/Collection)
     
@@ -1060,13 +1061,15 @@ Private Function GenerateCssSelector(ByVal ctrlName As String, ByVal properties 
     ' color: #000000;
     ' }
     
+    Dim codeList As New Collection
     Dim item As Variant
     Dim result As String
-    result = selectorSymbol & ctrlName & " {"
+    codeList.Add selectorSymbol & ctrlName & " {"
     For Each item In properties
-        result = result & vbLf & IndentSpaces(2) & item & ";"
+        codeList.Add vbLf & Space(2) & item & ";"
     Next
-    result = result & vbLf & "}"
+    codeList.Add vbLf & "}"
+    result = JoinCollection(codeList, "")
     GenerateCssSelector = result
 End Function
 
@@ -1285,29 +1288,31 @@ Private Function GenerateCssDataList(ByVal ctrl As Object, ByVal indentOffset As
     ' </datalist>
     
     Const q As String = """"
+    Dim codeList As New Collection
     Dim item As Variant
     Dim i As Long: i = 0
-    Dim r As String
+    Dim result As String
     Dim controlVarName As String
     Dim itemValue As String
     controlVarName = GenerateCtrlVarName(ctrl, prefix)
-    r = IndentSpaces(0 + indentOffset) & "<datalist id=" & q & controlVarName & "-items-value" & q & ">" & vbLf
+    codeList.Add Space(0 + indentOffset) & "<datalist id=" & q & controlVarName & "-items-value" & q & ">" & vbLf
     If ctrl.ListCount > 0 Then
         For Each item In ctrl.List
             i = i + 1
             itemValue = Convert2HTMLFormatText(item)
-            r = r & IndentSpaces(2 + indentOffset) & "<option value=" & q & itemValue & q & ">" & vbLf
+            codeList.Add Space(2 + indentOffset) & "<option value=" & q & itemValue & q & ">" & vbLf
             If i = ctrl.ListCount Then Exit For
         Next item
     Else
         ' If no items exist, output an empty <option> element
-        r = r & IndentSpaces(2 + indentOffset) & "<option value=" & q & " " & q & ">" & vbLf
+        codeList.Add Space(2 + indentOffset) & "<option value=" & q & " " & q & ">" & vbLf
     End If
     
-    r = r & IndentSpaces(0 + indentOffset) & "</datalist>"
+    codeList.Add Space(0 + indentOffset) & "</datalist>"
     
+    result = JoinCollection(codeList, "")
     
-    GenerateCssDataList = r
+    GenerateCssDataList = result
 End Function
 
 Private Function GenerateCssSelectOptions(ByVal ctrl As Object, ByVal indentOffset As Long) As String
@@ -1320,24 +1325,26 @@ Private Function GenerateCssSelectOptions(ByVal ctrl As Object, ByVal indentOffs
     '
     
     Const q As String = """"
+    Dim codeList As New Collection
     Dim item As Variant
     Dim i As Long: i = 0
-    Dim r As String
+    Dim result As String
     Dim itemValue As String
-    r = ""
     If ctrl.ListCount > 0 Then
         For Each item In ctrl.List
             i = i + 1
             itemValue = Convert2HTMLFormatText(item)
-            r = r & IndentSpaces(2 + indentOffset) & "<option value=" & q & itemValue & q & ">" & itemValue & "</option>" & vbLf
+            codeList.Add Space(2 + indentOffset) & "<option value=" & q & itemValue & q & ">" & itemValue & "</option>" & vbLf
             If i = ctrl.ListCount Then Exit For
         Next item
     Else
         ' If no items exist, output an empty <option> element
-        r = r & IndentSpaces(2 + indentOffset) & "<option value=" & q & q & ">" & item & "</option>" & vbLf
+        codeList.Add Space(2 + indentOffset) & "<option value=" & q & q & ">" & item & "</option>" & vbLf
     End If
     
-    GenerateCssSelectOptions = r
+    result = JoinCollection(codeList, "")
+    
+    GenerateCssSelectOptions = result
 End Function
 
 Private Function GetTextSizeFromCtrlFontSetting(ByVal ctrl As Object, ByVal targetText As String) As Variant()
@@ -1349,7 +1356,7 @@ Private Function GetTextSizeFromCtrlFontSetting(ByVal ctrl As Object, ByVal targ
     ' Parameters:
     '   ctrl        - The reference control whose font settings will be used.
     '   targetText  - The text to measure. If empty, "i" is used to ensure a measurable size is returned.
-    '                 (The letter  gi h is one of the ASCII characters with the narrowest rendering width.)
+    '                 (The letter "i" is one of the ASCII characters with the narrowest rendering width.)
     '
     ' Returns:
     '   Variant() Array
@@ -1852,7 +1859,7 @@ Private Function GenerateUUIDv4() As String
     GenerateUUIDv4 = LCase$(hexStr)
 End Function
 
-Private Sub SaveUTF8Text_NoBOM(ByVal filePath As String, ByVal textData As String)
+Private Sub SaveUtf8TextNoBom(ByVal filePath As String, ByVal textData As String)
     ' Save the specified string as UTF-8 without BOM
     Dim stream As Object
     Dim bytes() As Byte
@@ -1940,7 +1947,7 @@ Private Function SortFormControlsByDepth(ByVal frmControls As Variant) As Collec
         tempColl.Add VBA.Array(depth, ctrl)
     Next ctrl
     If tempColl.Count > 0 Then
-        tempArray = Collection2Array(tempColl)
+        tempArray = CollectionToArray(tempColl)
         Call InsertionSortJaggedArray(tempArray, reverse:=False)
         For Each item In tempArray
             sortedColl.Add item(1)
@@ -1950,7 +1957,7 @@ Private Function SortFormControlsByDepth(ByVal frmControls As Variant) As Collec
 End Function
 
 
-Private Function Collection2Array(ByVal coll As Collection, Optional ByVal isStartIdx1 As Boolean = False) As Variant()
+Private Function CollectionToArray(ByVal coll As Collection, Optional ByVal isStartIdx1 As Boolean = False) As Variant()
     ' Convert a Collection to an array
     ' If isStartIdx1 is True, create an array starting from index 1 (to match Collection numbering)
     Dim arr() As Variant
@@ -1975,7 +1982,7 @@ Private Function Collection2Array(ByVal coll As Collection, Optional ByVal isSta
     Else
         arr = VBA.Array()
     End If
-    Collection2Array = arr
+    CollectionToArray = arr
 End Function
 
 
@@ -2115,7 +2122,7 @@ End Sub
 Private Function JoinCollection(ByVal coll As Collection, Optional ByVal delimiter As String = "") As String
     Dim arr() As Variant
     Dim result As String
-    arr = Collection2Array(coll)
+    arr = CollectionToArray(coll)
     result = Join(arr, delimiter)
     JoinCollection = result
 End Function
@@ -2196,4 +2203,3 @@ Private Function AdjustIndent(ByVal text As String, ByVal indentSize As Long) As
     ' Join lines back
     AdjustIndent = Join(lines, vbLf)
 End Function
-
